@@ -776,8 +776,8 @@ def setup_context(app, pagename, templatename, context, doctree):
         soup.append(page_text)
 
         container = soup.new_tag("div", attrs={"class": "example-index"})
-        for group, examples in examples.items():
-            if not examples:
+        for group, group_examples in examples.items():
+            if not group_examples:
                 continue
 
             header = soup.new_tag("h2", attrs={"class": "example-header"})

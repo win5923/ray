@@ -259,20 +259,22 @@ class FileBasedDatasource(Datasource):
         parallelism = min(parallelism, len(paths))
 
         read_tasks = []
-        for read_paths, file_sizes in zip(
+        for split_read_paths, split_file_sizes in zip(
             np.array_split(paths, parallelism), np.array_split(file_sizes, parallelism)
         ):
-            if len(read_paths) <= 0:
+            if len(split_read_paths) <= 0:
                 continue
 
             meta = self._meta_provider(
-                read_paths,
+                split_read_paths,
                 self._schema,
                 rows_per_file=self._rows_per_file(),
-                file_sizes=file_sizes,
+                file_sizes=split_file_sizes,
             )
 
-            read_task_fn = create_read_task_fn(read_paths, self._NUM_THREADS_PER_TASK)
+            read_task_fn = create_read_task_fn(
+                split_read_paths, self._NUM_THREADS_PER_TASK
+            )
 
             read_task = ReadTask(read_task_fn, meta)
 

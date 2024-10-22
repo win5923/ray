@@ -27,8 +27,8 @@ def train_func(config):
                 state = json.load(f)
             step = state["step"] + 1
 
-    for step in range(step, 100):
-        intermediate_score = evaluation_fn(step, width, height)
+    for current_step in range(step, 100):
+        intermediate_score = evaluation_fn(current_step, width, height)
 
         with tempfile.TemporaryDirectory() as temp_checkpoint_dir:
             with open(os.path.join(temp_checkpoint_dir, "checkpoint.json"), "w") as f:
