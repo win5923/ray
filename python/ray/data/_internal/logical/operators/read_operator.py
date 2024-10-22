@@ -1,4 +1,3 @@
-import functools
 from typing import Any, Dict, Optional, Union
 
 from ray.data._internal.logical.operators.map_operator import AbstractMap
@@ -32,6 +31,8 @@ class Read(AbstractMap):
         self._mem_size = mem_size
         self._concurrency = concurrency
         self._detected_parallelism = None
+        # Initialize metadata cache
+        self._output_metadata_cache = None
 
     def set_detected_parallelism(self, parallelism: int):
         """
@@ -39,6 +40,8 @@ class Read(AbstractMap):
         should be specified by the user or detected by the optimizer.
         """
         self._detected_parallelism = parallelism
+        # Invalidate cache since parallelism affects read tasks
+        self.invalidate_output_metadata_cache()
 
     def get_detected_parallelism(self) -> int:
         """
@@ -46,24 +49,33 @@ class Read(AbstractMap):
         """
         return self._detected_parallelism
 
-    @functools.cache
     def aggregate_output_metadata(self) -> BlockMetadata:
         """A ``BlockMetadata`` that represents the aggregate metadata of the outputs.
 
         This method gets metadata from the read tasks. It doesn't trigger any actual
         execution.
         """
-        # Legacy datasources might not implement `get_read_tasks`.
+        # Use cached metadata if available
+        if self._output_metadata_cache is not None:
+            return self._output_metadata_cache
+
+        # Compute and cache metadata
+        self._output_metadata_cache = self._compute_output_metadata()
+        return self._output_metadata_cache
+
+    def _compute_output_metadata(self) -> BlockMetadata:
+        """Compute the output metadata without caching."""
+        # Legacy datasources might not implement `get_read_tasks`
         if self._datasource.should_create_reader:
             return BlockMetadata(None, None, None, None, None)
 
-        # HACK: Try to get a single read task to get the metadata.
+        # HACK: Try to get a single read task to get the metadata
         read_tasks = self._datasource.get_read_tasks(1)
         if len(read_tasks) == 0:
-            # If there are no read tasks, the dataset is probably empty.
+            # If there are no read tasks, the dataset is probably empty
             return BlockMetadata(None, None, None, None, None)
 
-        # `get_read_tasks` isn't guaranteed to return exactly one read task.
+        # `get_read_tasks` isn't guaranteed to return exactly one read task
         metadata = [read_task.metadata for read_task in read_tasks]
 
         if all(meta.num_rows is not None for meta in metadata):
@@ -90,3 +102,22 @@ class Read(AbstractMap):
             input_files=input_files,
             exec_stats=None,
         )
+
+    def invalidate_output_metadata_cache(self):
+        """Clear the output metadata cache."""
+        self._output_metadata_cache = None
+
+    def update_datasource(
+        self,
+        new_datasource: Datasource,
+        new_datasource_or_legacy_reader: Union[Datasource, Reader],
+    ):
+        """Update datasource and related fields, invalidating cache as needed."""
+        self._datasource = new_datasource
+        self._datasource_or_legacy_reader = new_datasource_or_legacy_reader
+        self.invalidate_output_metadata_cache()
+
+    def update_parallelism(self, new_parallelism: int):
+        """Update parallelism and invalidate cache."""
+        self._parallelism = new_parallelism
+        self.invalidate_output_metadata_cache()

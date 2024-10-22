@@ -1,5 +1,4 @@
 import abc
-import functools
 from typing import TYPE_CHECKING, List, Optional, Union
 
 from ray.data._internal.execution.interfaces import RefBundle
@@ -32,6 +31,8 @@ class AbstractFrom(LogicalOperator, metaclass=abc.ABCMeta):
             RefBundle([(input_blocks[i], input_metadata[i])], owns_blocks=False)
             for i in range(len(input_blocks))
         ]
+        # Initialize cache for output metadata
+        self._output_metadata_cache = None
 
     @property
     def input_data(self) -> List[RefBundle]:
@@ -40,8 +41,14 @@ class AbstractFrom(LogicalOperator, metaclass=abc.ABCMeta):
     def output_data(self) -> Optional[List[RefBundle]]:
         return self._input_data
 
-    @functools.cache
     def aggregate_output_metadata(self) -> BlockMetadata:
+        """Get aggregated output metadata, using cache if available."""
+        if self._output_metadata_cache is None:
+            self._output_metadata_cache = self._compute_output_metadata()
+        return self._output_metadata_cache
+
+    def _compute_output_metadata(self) -> BlockMetadata:
+        """Compute the output metadata without caching."""
         return BlockMetadata(
             num_rows=self._num_rows(),
             size_bytes=self._size_bytes(),
@@ -70,6 +77,10 @@ class AbstractFrom(LogicalOperator, metaclass=abc.ABCMeta):
     def is_lineage_serializable(self) -> bool:
         # This operator isn't serializable because it contains ObjectRefs.
         return False
+
+    def invalidate_output_metadata_cache(self):
+        """Clear the output metadata cache."""
+        self._output_metadata_cache = None
 
 
 class FromItems(AbstractFrom):

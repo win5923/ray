@@ -1,5 +1,4 @@
 import builtins
-import functools
 from copy import copy
 from typing import Iterable, List, Optional, Tuple
 
@@ -25,6 +24,8 @@ class RangeDatasource(Datasource):
         self._block_format = block_format
         self._tensor_shape = tensor_shape
         self._column_name = column_name
+        # Initialize schema cache as None
+        self._schema_cache = None
 
     def estimate_inmemory_data_size(self) -> Optional[int]:
         if self._block_format == "tensor":
@@ -42,9 +43,6 @@ class RangeDatasource(Datasource):
         block_format = self._block_format
         tensor_shape = self._tensor_shape
         block_size = max(1, n // parallelism)
-        # TODO(swang): This target block size may not match the driver's
-        # context if it was overridden. Set target max block size during
-        # optimizer stage to fix this.
         ctx = DataContext.get_current()
         if self._n == 0:
             target_rows_per_block = 0
@@ -53,8 +51,6 @@ class RangeDatasource(Datasource):
             row_size_bytes = max(row_size_bytes, 1)
             target_rows_per_block = max(1, ctx.target_max_block_size // row_size_bytes)
 
-        # Example of a read task. In a real datasource, this would pull data
-        # from an external system instead of generating dummy data.
         def make_block(start: int, count: int) -> Block:
             if block_format == "arrow":
                 import pyarrow as pa
@@ -96,7 +92,7 @@ class RangeDatasource(Datasource):
             meta = BlockMetadata(
                 num_rows=count,
                 size_bytes=8 * count * element_size,
-                schema=copy(self._schema()),
+                schema=copy(self._get_schema()),
                 input_files=None,
                 exec_stats=None,
             )
@@ -112,8 +108,14 @@ class RangeDatasource(Datasource):
 
         return read_tasks
 
-    @functools.cache
-    def _schema(self):
+    def _get_schema(self):
+        """Get the schema, using cached value if available."""
+        if self._schema_cache is None:
+            self._schema_cache = self._compute_schema()
+        return self._schema_cache
+
+    def _compute_schema(self):
+        """Compute the schema without caching."""
         if self._n == 0:
             return None
 

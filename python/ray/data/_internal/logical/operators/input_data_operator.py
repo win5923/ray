@@ -1,4 +1,3 @@
-import functools
 from typing import Callable, List, Optional
 
 from ray.data._internal.execution.interfaces import RefBundle
@@ -27,17 +26,27 @@ class InputData(LogicalOperator):
         )
         self.input_data = input_data
         self.input_data_factory = input_data_factory
+        # Initialize metadata cache
+        self._output_metadata_cache = None
 
     def output_data(self) -> Optional[List[RefBundle]]:
         if self.input_data is None:
             return None
         return self.input_data
 
-    @functools.cache
     def aggregate_output_metadata(self) -> BlockMetadata:
+        """Get aggregated output metadata, using cache if available."""
+        # If input_data is None, return empty metadata immediately
         if self.input_data is None:
             return BlockMetadata(None, None, None, None, None)
 
+        # Use cached metadata if available
+        if self._output_metadata_cache is None:
+            self._output_metadata_cache = self._compute_output_metadata()
+        return self._output_metadata_cache
+
+    def _compute_output_metadata(self) -> BlockMetadata:
+        """Compute the output metadata without caching."""
         return BlockMetadata(
             num_rows=self._num_rows(),
             size_bytes=self._size_bytes(),
@@ -69,3 +78,20 @@ class InputData(LogicalOperator):
     def is_lineage_serializable(self) -> bool:
         # This operator isn't serializable because it contains ObjectRefs.
         return False
+
+    def invalidate_output_metadata_cache(self):
+        """Clear the output metadata cache."""
+        self._output_metadata_cache = None
+
+    def update_input_data(self, new_input_data: Optional[List[RefBundle]]):
+        """Update input data and invalidate cache."""
+        self.input_data = new_input_data
+        self.invalidate_output_metadata_cache()
+
+    def update_input_data_factory(
+        self, new_factory: Optional[Callable[[int], List[RefBundle]]]
+    ):
+        """Update input data factory and invalidate cache if needed."""
+        self.input_data_factory = new_factory
+        if self.input_data is not None:
+            self.invalidate_output_metadata_cache()
